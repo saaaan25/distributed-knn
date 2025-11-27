@@ -4,7 +4,7 @@
 #include <sys/time.h>
 #include <math.h>
 #include <mpi.h>
-#include <omp.h>       // ⬅ OpenMP agregado
+#include <omp.h>
 
 #include "matrix.h"
 #include "knn.h"
@@ -42,8 +42,7 @@ int main(int argc, char *argv[]) {
 
     int next_task = (rank + 1) % tasks_num;
     int prev_task = (rank == 0 ? tasks_num - 1 : rank - 1);
-
-    // -------- OpenMP INFO --------
+    
     if (rank == MPI_MASTER) {
         printf("OMP_NUM_THREADS = %s\n",
             getenv("OMP_NUM_THREADS") ? getenv("OMP_NUM_THREADS") : "not set");
@@ -52,7 +51,7 @@ int main(int argc, char *argv[]) {
         printf("================================\n\n");
     }
 
-    // -------- LOAD DATA --------
+    // LOAD DATA
     matrix_t *initial_data = matrix_load_in_chunks(data_fn, tasks_num, rank);
     if (!initial_data) {
         fprintf(stderr, "ERROR: rank %d no pudo cargar %s\n", rank, data_fn);
@@ -60,7 +59,7 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    // -------- LOAD LABELS --------
+    // LOAD LABELS
     matrix_t *labels = matrix_load_in_chunks(labels_fn, tasks_num, rank);
     if (!labels) {
         fprintf(stderr, "ERROR: rank %d no pudo cargar %s\n", rank, labels_fn);
@@ -69,7 +68,7 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    // -------- KNN SEARCH --------
+    // KNN SEARCH
     struct timeval t0, t1;
     MPI_Barrier(MPI_COMM_WORLD);
     gettimeofday(&t0, NULL);
@@ -85,7 +84,7 @@ int main(int argc, char *argv[]) {
                tasks_num, get_elapsed_time(t0, t1));
     }
 
-    // -------- LABELING --------
+    // LABELING
     matrix_t *labeled =
         knn_labeling_distributed(results,
                                  matrix_get_rows(initial_data),
@@ -94,7 +93,7 @@ int main(int argc, char *argv[]) {
 
     KNN_Pair_destroy_table(results, matrix_get_rows(initial_data));
 
-    // -------- CLASSIFY (OpenMP paralelizado) --------
+    // CLASSIFY
     MPI_Barrier(MPI_COMM_WORLD);
     gettimeofday(&t0, NULL);
 
@@ -132,7 +131,7 @@ int main(int argc, char *argv[]) {
                get_elapsed_time(t0, t1));
     }
 
-    // -------- VERIFY LOCAL ACCURACY --------
+    // VERIFY LOCAL ACCURACY
     int correct = 0;
     for (int i = 0; i < local_points; i++) {
         if (matrix_get_cell(classified, i, 0) ==
