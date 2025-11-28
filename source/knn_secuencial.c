@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-#define MAX_POINTS 10000
+#define MAX_POINTS 10000000
 
 typedef struct {
     double x, y;
