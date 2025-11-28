@@ -32,6 +32,19 @@ struct KNN_Pair **knn_search_distributed(matrix_t *local_data, int k,
     return out;
 }
 
+/* knn_labeling_distributed: simplified version that only uses local labels.
+ * A real implementation would require communication between tasks to resolve
+ * labels for neighbors that are not in the local data chunk.
+ */
+matrix_t *knn_labeling_distributed(struct KNN_Pair **knns, int points, int k,
+                                   matrix_t *labels, int prev_task, int next_task,
+                                   int tasks_num)
+{
+    int i_offset = matrix_get_chunk_offset(labels);
+    return knn_labeling(knns, points, k, NULL, NULL, labels, i_offset);
+}
+
+
 /* minimal stubs for async helpers used previously (kept for linking) */
 MPI_Request *_async_send_object(char *object, size_t length, int rank, int *handlerc) {
     MPI_Request *req = (MPI_Request*) malloc(sizeof(MPI_Request));

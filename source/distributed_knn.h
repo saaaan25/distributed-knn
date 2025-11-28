@@ -12,6 +12,17 @@ struct KNN_Pair **knn_search_distributed(
     int tasks_num
 );
 
+matrix_t *knn_labeling_distributed(
+    struct KNN_Pair **knns,
+    int points,
+    int k,
+    matrix_t *labels,
+    int prev_task,
+    int next_task,
+    int tasks_num
+);
+
+
 /* Asynchronous helpers (not actually used but declared) */
 MPI_Request *_async_send_object(char *object, size_t length, int rank, int *handlerc);
 MPI_Request *_async_recv_object(char **object, size_t *length, int rank, int *handlerc);

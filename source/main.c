@@ -8,6 +8,7 @@
 
 #include "matrix.h"
 #include "knn.h"
+#include "distributed_knn.h"
 
 #define MPI_MASTER 0
 
