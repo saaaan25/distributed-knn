@@ -144,6 +144,80 @@ matrix_t *matrix_load_in_chunks(const char *filename, int32_t chunks_num, int32_
     }
 }
 
+int matrix_load_split_txt(const char *filename, int32_t chunks_num, int32_t req_chunk,
+                          matrix_t **out_data, matrix_t **out_labels) {
+    int total_rows = 0, total_cols = 0;
+    if (count_txt(filename, &total_rows, &total_cols) != 0 || total_cols < 2) {
+        fprintf(stderr, "ERROR: cannot parse %s or insufficient columns\n", filename);
+        return -1;
+    }
+
+    int32_t base_rows = total_rows / chunks_num;
+    int remaining = total_rows % chunks_num;
+    int32_t rows;
+    long offset;
+    if (req_chunk < remaining) {
+        rows = base_rows + 1;
+        offset = req_chunk * rows;
+    } else {
+        rows = base_rows;
+        offset = ((base_rows + 1) * remaining) + (base_rows * (req_chunk - remaining));
+    }
+
+    matrix_t *data = matrix_create(rows, total_cols - 1);
+    matrix_t *labels = matrix_create(rows, 1);
+    if (!data || !labels) {
+        matrix_destroy(data);
+        matrix_destroy(labels);
+        return -1;
+    }
+    data->chunk_offset = (int32_t) offset;
+    labels->chunk_offset = (int32_t) offset;
+
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        matrix_destroy(data);
+        matrix_destroy(labels);
+        return -1;
+    }
+
+    char line[8192];
+    int cur = 0, filled = 0;
+    while (fgets(line, sizeof(line), f)) {
+        char *p = line;
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (*p == '\0' || *p == '#') continue;
+        if (cur < offset) { cur++; continue; }
+        if (filled >= rows) break;
+
+        int col = 0;
+        char *tok = strtok(line, " \t\r\n");
+        while (tok && col < total_cols) {
+            double val = atof(tok);
+            if (col < total_cols - 1)
+                data->data[filled][col] = val;
+            else
+                labels->data[filled][0] = val;
+            col++;
+            tok = strtok(NULL, " \t\r\n");
+        }
+        filled++;
+        cur++;
+    }
+    fclose(f);
+
+    if (filled != rows) {
+        matrix_destroy(data);
+        matrix_destroy(labels);
+        return -1;
+    }
+
+    *out_data = data;
+    *out_labels = labels;
+    return 0;
+}
+
+
 /* serialize/deserialize */
 char *matrix_serialize(matrix_t *matrix, size_t *bytec) {
     int32_t rows = matrix_get_rows(matrix);

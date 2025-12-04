@@ -17,14 +17,19 @@ double get_elapsed_time(struct timeval start, struct timeval stop) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 4) {
-        printf("Uso: %s <query_x> <query_y> <k>\n", argv[0]);
-        return -1;
-    }
+    if (argc != 8) {
+    printf("Uso: %s <edad> <estatura> <peso> <glucosa> <fc> <oxigeno> <k>\n", argv[0]);
+    return -1;
+}
 
-    double qx = atof(argv[1]);
-    double qy = atof(argv[2]);
-    int k = atoi(argv[3]);
+    double edad     = atof(argv[1]);
+    double estatura = atof(argv[2]);
+    double peso     = atof(argv[3]);
+    double glucosa  = atof(argv[4]);
+    double fc       = atof(argv[5]);
+    double oxigeno  = atof(argv[6]);
+    int k           = atoi(argv[7]);
+
     if (k <= 0) { fprintf(stderr, "k debe ser > 0\n"); return -1; }
 
     int tasks_num = 1, rank = 0;
@@ -32,7 +37,7 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &tasks_num);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    const char *data_fn = "dataset/input.txt";
+    const char *data_fn = "dataset/input.txt"; //dataset con 6 features + 1 label
 
     /* Each proc loads its chunk */
     matrix_t *local_data = matrix_load_in_chunks(data_fn, tasks_num, rank);
@@ -42,18 +47,21 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    /* Build query (1 x cols) */
+    /* Build query (1 x 6 features) */
     int cols = matrix_get_cols(local_data);
-    if (cols < 2) {
-        if (rank == MPI_MASTER) fprintf(stderr, "ERROR: dataset must have at least 2 columns (x y)\n");
+    if (cols < 7) {
+        if (rank == MPI_MASTER) fprintf(stderr, "ERROR: dataset debe tener al menos 7 columnas (6 features + label)\n");
         matrix_destroy(local_data);
         MPI_Finalize();
         return -1;
     }
-    matrix_t *query = matrix_create(1, cols);
-    matrix_set_cell(query, 0, 0, qx);
-    matrix_set_cell(query, 0, 1, qy);
-    for (int c = 2; c < cols; ++c) matrix_set_cell(query, 0, c, 0.0);
+    matrix_t *query = matrix_create(1, cols - 1);
+    matrix_set_cell(query, 0, 0, edad);
+    matrix_set_cell(query, 0, 1, estatura);
+    matrix_set_cell(query, 0, 2, peso);
+    matrix_set_cell(query, 0, 3, glucosa);
+    matrix_set_cell(query, 0, 4, fc);
+    matrix_set_cell(query, 0, 5, oxigeno);
 
     /* Each process computes its k nearest neighbors for the single query against its local_data */
     struct KNN_Pair **local_knns = knn_search(local_data, query, k, matrix_get_chunk_offset(local_data));
@@ -65,26 +73,29 @@ int main(int argc, char *argv[]) {
     }
 
     /* Prepare send buffer: per neighbor: distance, index, x, y, label (5 doubles) */
-    int elems_per = 5;
+    int elems_per = 9;
     double *sendbuf = (double*) malloc(sizeof(double) * k * elems_per);
     for (int i = 0; i < k; ++i) {
         double dist = local_knns[0][i].distance;
         int idx = local_knns[0][i].index;
-        double x = NAN, y = NAN, lab = NAN;
+        double features[6] = {NAN,NAN,NAN,NAN,NAN,NAN};
+        double lab = NAN;
         int offset = matrix_get_chunk_offset(local_data);
         int local_idx = idx - offset;
         if (local_idx >= 0 && local_idx < matrix_get_rows(local_data)) {
-            x = matrix_get_cell(local_data, local_idx, 0);
-            y = matrix_get_cols(local_data) > 1 ? matrix_get_cell(local_data, local_idx, 1) : NAN;
-            if (matrix_get_cols(local_data) > 2) lab = matrix_get_cell(local_data, local_idx, 2);
+            for (int f = 0; f < 6; f++) {
+                features[f] = matrix_get_cell(local_data, local_idx, f);
+            }
+            lab = matrix_get_cell(local_data, local_idx, 6); // última columna = etiqueta
         }
         sendbuf[elems_per * i + 0] = dist;
         sendbuf[elems_per * i + 1] = (double) idx;
-        sendbuf[elems_per * i + 2] = x;
-        sendbuf[elems_per * i + 3] = y;
-        sendbuf[elems_per * i + 4] = lab;
+        for (int f = 0; f < 6; f++) {
+            sendbuf[elems_per * i + 2 + f] = features[f];
+        }
+        sendbuf[elems_per * i + 8] = lab;
     }
-
+    
     double *recvbuf = NULL;
     if (rank == MPI_MASTER) {
         recvbuf = (double*) malloc(sizeof(double) * k * elems_per * tasks_num);
@@ -108,27 +119,31 @@ int main(int argc, char *argv[]) {
         qsort(all, total, sizeof(struct KNN_Pair), KNN_Pair_asc_comp);
 
         double elapsed = get_elapsed_time(t0, t1);
-        printf("Distributed single-query knn using %d processes: gather + local sort time = %.6f secs\n", tasks_num, elapsed);
+        printf("Distributed single-query knn usando %d procesos: tiempo gather + sort = %.6f secs\n", tasks_num, elapsed);
 
-        printf("\n=== Top %d neighbors for (%.4f, %.4f) ===\n", k, qx, qy);
+        printf("\n=== Top %d vecinos para query (edad=%.1f, estatura=%.1f, peso=%.1f, glucosa=%.1f, fc=%.1f, oxigeno=%.1f) ===\n",
+               k, edad, estatura, peso, glucosa, fc, oxigeno);
+
         for (int i = 0, printed = 0; printed < k && i < total; ++i) {
             int idx = all[i].index;
             double dist = all[i].distance;
-            double rx = NAN, ry = NAN, rlab = NAN;
+            double feats[6] = {NAN,NAN,NAN,NAN,NAN,NAN};
+            double rlab = NAN;
             for (int p = 0; p < total; ++p) {
                 if ((int) recvbuf[elems_per * p + 1] == idx) {
-                    rx = recvbuf[elems_per * p + 2];
-                    ry = recvbuf[elems_per * p + 3];
-                    rlab = recvbuf[elems_per * p + 4];
+                    for (int f = 0; f < 6; f++) feats[f] = recvbuf[elems_per * p + 2 + f];
+                    rlab = recvbuf[elems_per * p + 8];
                     break;
                 }
             }
-            printf("%d) idx=%d  (%.6f, %.6f)  label=%.0f  dist=%.6f\n",
-                   printed+1, idx, rx, ry, rlab, dist);
+            printf("%d) idx=%d  edad=%.1f estatura=%.1f peso=%.1f glucosa=%.1f fc=%.1f oxigeno=%.1f  label=%.0f  dist=%.6f\n",
+                   printed+1, idx,
+                   feats[0], feats[1], feats[2], feats[3], feats[4], feats[5],
+                   rlab, dist);
             printed++;
         }
 
-        /* majority vote from top-k labels (ignore NaN), if none -> -1 */
+        /* Votación mayoritaria de etiquetas */
         int label_counts[2048] = {0};
         int best_label = -1, best_count = 0;
         for (int i = 0, collected = 0; collected < k && i < total; ++i) {
@@ -136,7 +151,7 @@ int main(int argc, char *argv[]) {
             double rlab = NAN;
             for (int p = 0; p < total; ++p) {
                 if ((int) recvbuf[elems_per * p + 1] == idx) {
-                    rlab = recvbuf[elems_per * p + 4];
+                    rlab = recvbuf[elems_per * p + 8];
                     break;
                 }
             }

@@ -23,6 +23,9 @@ void matrix_set_cell(matrix_t *m, int32_t r, int32_t c, double v);
 
 matrix_t *matrix_load_in_chunks(const char *filename, int32_t chunks_num, int32_t req_chunk);
 
+int matrix_load_split_txt(const char *filename, int32_t chunks_num, int32_t req_chunk,
+                          matrix_t **out_data, matrix_t **out_labels);
+
 char *matrix_serialize(matrix_t *matrix, size_t *bytec);
 matrix_t *matrix_deserialize(char *bytes, size_t bytec);
 

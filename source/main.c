@@ -20,14 +20,13 @@ double get_elapsed_time(struct timeval start, struct timeval stop) {
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 4) {
-        printf("Uso: %s <data_file> <labels_file> <k>\n", argv[0]);
+    if (argc < 3) {
+        printf("Uso: %s <dataset_file> <k>\n", argv[0]);
         return -1;
     }
 
-    char *data_fn   = argv[1];
-    char *labels_fn = argv[2];
-    int k = atoi(argv[3]);
+    char *dataset_fn = argv[1];
+    int k = atoi(argv[2]);
 
     if (k <= 0) {
         fprintf(stderr, "ERROR: k debe ser > 0\n");
@@ -52,19 +51,12 @@ int main(int argc, char *argv[]) {
         printf("================================\n\n");
     }
 
-    // LOAD DATA
-    matrix_t *initial_data = matrix_load_in_chunks(data_fn, tasks_num, rank);
-    if (!initial_data) {
-        fprintf(stderr, "ERROR: rank %d no pudo cargar %s\n", rank, data_fn);
-        MPI_Finalize();
-        return -1;
-    }
+    // LOAD DATA + LABELS desde un solo archivo
+    matrix_t *initial_data = NULL;
+    matrix_t *labels = NULL;
 
-    // LOAD LABELS
-    matrix_t *labels = matrix_load_in_chunks(labels_fn, tasks_num, rank);
-    if (!labels) {
-        fprintf(stderr, "ERROR: rank %d no pudo cargar %s\n", rank, labels_fn);
-        matrix_destroy(initial_data);
+    if (matrix_load_split_txt(dataset_fn, tasks_num, rank, &initial_data, &labels) != 0) {
+        fprintf(stderr, "ERROR: rank %d no pudo cargar %s\n", rank, dataset_fn);
         MPI_Finalize();
         return -1;
     }
