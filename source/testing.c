@@ -63,6 +63,11 @@ int main(int argc, char *argv[]) {
     matrix_set_cell(query, 0, 4, fc);
     matrix_set_cell(query, 0, 5, oxigeno);
 
+    /* --- Medición de tiempo total --- */
+    MPI_Barrier(MPI_COMM_WORLD);
+    struct timeval t0, t1;
+    gettimeofday(&t0, NULL);
+
     /* Each process computes its k nearest neighbors for the single query against its local_data */
     struct KNN_Pair **local_knns = knn_search(local_data, query, k, matrix_get_chunk_offset(local_data));
     if (!local_knns) {
@@ -102,14 +107,16 @@ int main(int argc, char *argv[]) {
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
-    struct timeval t0, t1;
     gettimeofday(&t0, NULL);
 
     MPI_Gather(sendbuf, k*elems_per, MPI_DOUBLE, recvbuf, k*elems_per, MPI_DOUBLE, MPI_MASTER, MPI_COMM_WORLD);
 
+    MPI_Barrier(MPI_COMM_WORLD);
     gettimeofday(&t1, NULL);
 
     if (rank == MPI_MASTER) {
+        double elapsed_total = get_elapsed_time(t0, t1);
+        printf("\nTiempo total de ejecución del KNN distribuido = %.6f segundos\n", elapsed_total);
         int total = k * tasks_num;
         struct KNN_Pair *all = (struct KNN_Pair*) malloc(sizeof(struct KNN_Pair) * total);
         for (int i = 0; i < total; ++i) {
