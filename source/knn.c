@@ -40,29 +40,41 @@ int KNN_Pair_asc_comp_by_index(const void *a, const void *b) {
 /* knn_search: use only first two columns for coords (x,y). That avoids using label column. */
 struct KNN_Pair **knn_search(matrix_t *data, matrix_t *points, int k, int i_offset) {
     if (!data || !points || k < 1) return NULL;
+
     int data_rows = matrix_get_rows(data);
-    int pointc = matrix_get_rows(points);
+    int P = matrix_get_rows(points);
     int dims = matrix_get_cols(points);
-    if (dims < 2) dims = 2; /* expect at least 2 cols (x,y) */
-    struct KNN_Pair **results = KNN_Pair_create_empty_table(pointc, k);
-    for (int p = 0; p < pointc; ++p) {
+    if (dims < 2) dims = 2;
+
+    struct KNN_Pair **results = KNN_Pair_create_empty_table(P, k);
+    if (!results) return NULL;
+
+    // Paralelismo
+    #pragma omp parallel for schedule(static)
+    for (int p = 0; p < P; ++p) {
+
+        struct KNN_Pair *local_knn = results[p];
+
         for (int d = 0; d < data_rows; ++d) {
+
+            // Calcula distancia euclidiana
             double dist = 0.0;
             for (int c = 0; c < 2; ++c) {
-                double a = matrix_get_cell(points, p, c);
-                double b = matrix_get_cell(data, d, c);
-                double diff = a - b;
+                double diff = matrix_get_cell(points, p, c)
+                             - matrix_get_cell(data, d, c);
                 dist += diff * diff;
             }
             dist = sqrt(dist);
-            /* if better than worst neighbor (k-1), insert and sort */
-            if (results[p][k-1].index == -1 || dist < results[p][k-1].distance) {
-                results[p][k-1].distance = dist;
-                results[p][k-1].index = i_offset + d;
-                qsort(results[p], k, sizeof(struct KNN_Pair), KNN_Pair_asc_comp);
+
+            if (local_knn[k-1].index == -1 || dist < local_knn[k-1].distance) {
+                local_knn[k-1].distance = dist;
+                local_knn[k-1].index = i_offset + d;
+
+                qsort(local_knn, k, sizeof(struct KNN_Pair), KNN_Pair_asc_comp);
             }
         }
     }
+
     return results;
 }
 
