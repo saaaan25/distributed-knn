@@ -3,9 +3,10 @@
 #include <math.h>
 
 #define MAX_POINTS 10000000
+#define FEATURES 6   // número de columnas de características
 
 typedef struct {
-    double x, y;
+    double features[FEATURES];  // edad, estatura, peso, glucosa, FC, oxígeno
     int label;
 } Point;
 
@@ -20,83 +21,108 @@ int compare_neighbors(const void *a, const void *b) {
     return (na->distance > nb->distance) - (na->distance < nb->distance);
 }
 
-double distance(double x1, double y1, double x2, double y2) {
-    return sqrt(pow(x1 - x2, 2) + pow(y1 - y2, 2));
+double euclidean_distance(const double *a, const double *b) {
+    double sum = 0.0;
+    for (int i = 0; i < FEATURES; i++) {
+        double diff = a[i] - b[i];
+        sum += diff * diff;
+    }
+    return sqrt(sum);
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 4) {
-        printf("Uso: ./knn_secuencial x y k\n");
+
+    if (argc != FEATURES + 2) {
+        printf("Uso: ./knn_secuencial ");
+        for (int i = 0; i < FEATURES; i++) printf("v%d ", i+1);
+        printf(" k\n");
+        printf("Ejemplo: ./knn_secuencial 30 170 75 110 80 97 5\n");
         return 1;
     }
 
-    double qx = atof(argv[1]);
-    double qy = atof(argv[2]);
-    int k = atoi(argv[3]);
+    // Leer punto de consulta
+    double query[FEATURES];
+    for (int i = 1; i <= FEATURES; i++)
+        query[i-1] = atof(argv[i]);
 
-    FILE *fp = fopen("../dataset/input.txt", "r");
+    int k = atoi(argv[FEATURES + 1]);
+
+    FILE *fp = fopen("../dataset/pacientes_dataset.txt", "r");
     if (!fp) {
-        printf("ERROR: No se pudo abrir ../dataset/input.txt\n");
+        printf("ERROR: No se pudo abrir ../dataset/pacientes_dataset.txt\n");
         return 1;
     }
 
     Point dataset[MAX_POINTS];
     int count = 0;
 
-    // Leer dataset
-    while (fscanf(fp, "%lf %lf %d", &dataset[count].x, &dataset[count].y, &dataset[count].label) == 3) {
+    // Leer dataset genérico de 7 columnas
+    while (fscanf(fp,
+                  "%lf %lf %lf %lf %lf %lf %d",
+                  &dataset[count].features[0],
+                  &dataset[count].features[1],
+                  &dataset[count].features[2],
+                  &dataset[count].features[3],
+                  &dataset[count].features[4],
+                  &dataset[count].features[5],
+                  &dataset[count].label) == 7) {
         count++;
         if (count >= MAX_POINTS) break;
     }
     fclose(fp);
 
     if (k > count) {
-        printf("ERROR: k es mayor al número de puntos en el dataset.\n");
+        printf("ERROR: k es mayor al número de puntos (%d).\n", count);
         return 1;
     }
 
-    Neighbor neighbors[MAX_POINTS];
+    Neighbor *neighbors = malloc(sizeof(Neighbor) * count);
 
     // Calcular distancias
     for (int i = 0; i < count; i++) {
         neighbors[i].index = i;
-        neighbors[i].distance = distance(qx, qy, dataset[i].x, dataset[i].y);
+        neighbors[i].distance = euclidean_distance(query, dataset[i].features);
     }
 
-    // Ordenar por distancia
+    // Ordenar por distancia ascendente
     qsort(neighbors, count, sizeof(Neighbor), compare_neighbors);
 
-    // Imprimir información
-    printf("\nPunto: (%.3f, %.3f)\n", qx, qy);
-    printf("k = %d\n\n", k);
+    // Mostrar vecinos más cercanos
+    printf("\nPunto consultado:\n");
+    for (int i = 0; i < FEATURES; i++)
+        printf("  v%d = %.3f\n", i+1, query[i]);
+
+    printf("\nk = %d\n\n", k);
 
     printf("Vecinos más cercanos:\n");
     for (int i = 0; i < k; i++) {
         int idx = neighbors[i].index;
-        printf("%d) (%.3f, %.3f) label=%d dist=%.5f\n",
-               i + 1, dataset[idx].x, dataset[idx].y,
-               dataset[idx].label, neighbors[i].distance);
+        printf("%d) dist=%.5f label=%d  -> [",
+               i+1, neighbors[i].distance, dataset[idx].label);
+
+        for (int j = 0; j < FEATURES; j++)
+            printf("%.2f%s", dataset[idx].features[j], (j<FEATURES-1 ? ", " : ""));
+
+        printf("]\n");
     }
 
-    // Clasificación (mayoría)
+    // Clasificación por mayoría
     int class_count[100] = {0};
     for (int i = 0; i < k; i++) {
         int lbl = dataset[neighbors[i].index].label;
         class_count[lbl]++;
     }
 
-    // Determinar clase mayoritaria
-    int best_class = 0;
-    int best_count = class_count[0];
+    int best_class = 0, best_count = class_count[0];
     for (int i = 1; i < 100; i++) {
         if (class_count[i] > best_count) {
-            best_class = i;
             best_count = class_count[i];
+            best_class = i;
         }
     }
 
     printf("\nClase predicha: %d\n\n", best_class);
 
+    free(neighbors);
     return 0;
 }
-
